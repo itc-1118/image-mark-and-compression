@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, minimum-scale=0.1"
+    />
+    <title>Image Watermarking</title>
+    <style>
+      body {
+        margin: 0;
+        height: 100%;
+        background-color: #0e0e0e;
+      }
+
+      #imageInfo {
+        color: red;
+      }
+    </style>
+  </head>
+  <body>
+    <form name="form1">
+      <input
+        type="file"
+        id="photo"
+        name="photo"
+        accept="image/*"
+        class="photocss"
+        onchange="handleImageChange()"
+      />
+    </form>
+    <img id="previewImage" style="display: none" alt="Preview Image" />
+
+    <div id="imageInfo">
+      <p id="originalSize">原始图片大小：</p>
+      <p id="compressedSize">压缩后大小：</p>
+      <p id="compressionRatio">压缩比例：</p>
+    </div>
+
+    <script>
+      const CanvasUtils = {
+        /**
+         * 在画布上绘制文本
+         * @param {CanvasRenderingContext2D} ctx 画布上下文
+         * @param {string} text 要绘制的文本
+         * @param {number} fontSize 字体大小
+         * @param {number} textY Y轴位置
+         * @param {number} textX X轴位置
+         */
+        drawText: (ctx, text, fontSize, textY, textX) => {
+          ctx.font = `${fontSize}px Arial`;
+          ctx.fillStyle = "rgba(255, 255, 255, 1)";
+          ctx.fillText(text, textX, textY);
+        },
+
+        /**
+         * 根据画布宽度计算字体大小
+         * @param {number} watermarkWidth 水印宽度
+         * @returns {number} 字体大小
+         */
+        calculateFontSize: (watermarkWidth) => {
+          const fontSizeMultiplier = 0.04;
+          return watermarkWidth * fontSizeMultiplier;
+        },
+
+        /**
+         * 添加水印到图片
+         * @param {File} file 图片文件
+         * @param {string} gasName 油站名称
+         * @param {string} location 地址
+         * @returns {Promise<Blob>} 返回添加水印后的 Blob 对象
+         */
+        addWatermarkToImage: (file, gasName, location) => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.src = URL.createObjectURL(file);
+
+            img.onload = () => {
+              const canvas = document.createElement("canvas");
+              const ctx = canvas.getContext("2d");
+
+              // Set watermark width percentage
+              const watermarkWidthPercentage = 0.9;
+
+              canvas.width = img.width;
+              canvas.height = img.height;
+
+              ctx.drawImage(img, 0, 0);
+
+              // Add transparent background
+              ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+              // Calculate watermark width and position
+              const watermarkWidth = canvas.width * watermarkWidthPercentage;
+              const watermarkX = (canvas.width - watermarkWidth) / 2; // Centered
+
+              // Add current date and time
+              const currentDate = new Date();
+              const timeString = currentDate.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+
+              // Add date
+              const dateString = currentDate.toLocaleDateString();
+              const dayOfWeek = new Intl.DateTimeFormat("en-US", {
+                weekday: "long",
+              }).format(currentDate);
+              CanvasUtils.drawText(
+                ctx,
+                `${dateString} ${dayOfWeek} ${timeString}`,
+                CanvasUtils.calculateFontSize(watermarkWidth),
+                CanvasUtils.calculateFontSize(watermarkWidth) * 2,
+                watermarkX + watermarkWidth / 2
+              );
+
+              // Add gas station name
+              CanvasUtils.drawText(
+                ctx,
+                gasName,
+                CanvasUtils.calculateFontSize(watermarkWidth),
+                CanvasUtils.calculateFontSize(watermarkWidth) * 3.5,
+                watermarkX + watermarkWidth / 2
+              );
+
+              // Add location
+              CanvasUtils.drawText(
+                ctx,
+                location,
+                CanvasUtils.calculateFontSize(watermarkWidth),
+                CanvasUtils.calculateFontSize(watermarkWidth) * 5,
+                watermarkX + watermarkWidth / 2
+              );
+
+              canvas.toBlob((blob) => {
+                resolve(blob);
+              }, file.type);
+            };
+
+            img.onerror = (error) => {
+              reject(error);
+            };
+          });
+        },
+
+        /**
+         * 将图像文件压缩以减小其大小。
+         * @param {File} file - 要压缩的图像文件。
+         * @param {number} maxSizeMB - 压缩后图像的最大大小，以兆字节为单位。
+         * @returns {Promise<File>} 一个解析为压缩后图像文件的 Promise。
+         */
+        compressImage(file, maxSizeMB) {
+          return new Promise((resolve, reject) => {
+            let reader = new FileReader();
+
+            reader.onload = function () {
+              let img = new Image();
+
+              img.onload = function () {
+                let canvas = document.createElement("canvas");
+                let ctx = canvas.getContext("2d");
+                let maxSizeBytes = maxSizeMB * 1024 * 1024;
+                let scaleFactor = 0.5;
+
+                if (file.size > maxSizeBytes) {
+                  scaleFactor = Math.min(
+                    scaleFactor,
+                    Math.sqrt(maxSizeBytes / file.size)
+                  ); // 计算缩放比例，保持宽高比
+                }
+
+                canvas.width = img.width * scaleFactor;
+                canvas.height = img.height * scaleFactor;
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                canvas.toBlob(
+                  (blob) => {
+                    const compressedFile = new File([blob], file.name, {
+                      type: file.type,
+                      lastModified: Date.now(),
+                    });
+                    resolve(compressedFile);
+                  },
+                  file.type,
+                  0.8 // 设置压缩质量参数为 0.8
+                );
+              };
+
+              img.onerror = reject;
+
+              img.src = reader.result;
+            };
+
+            reader.onerror = reject;
+
+            reader.readAsDataURL(file);
+          });
+        },
+
+        // 将字节数转换为更友好的大小格式（KB或MB）
+        formatSize(bytes) {
+          if (bytes < 1024) {
+            return bytes + " bytes";
+          } else if (bytes < 1024 * 1024) {
+            return (bytes / 1024).toFixed(2) + " KB";
+          } else {
+            return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+          }
+        },
+      };
+
+      // 使用示例
+      async function handleImageChange() {
+        const fileImage = document.getElementById("photo").files[0];
+        const originalSizeElement = document.getElementById("originalSize");
+        const compressedSizeElement = document.getElementById("compressedSize");
+        const compressionRatioElement =
+          document.getElementById("compressionRatio");
+
+        // 显示原始图片大小
+        originalSizeElement.textContent = `原始图片大小：${CanvasUtils.formatSize(
+          fileImage.size
+        )}`;
+
+        console.log("Original size:", fileImage.size);
+        let file = await CanvasUtils.compressImage(fileImage, 1);
+        console.log("Compressed size:", file.size);
+
+        // 显示压缩后大小
+        compressedSizeElement.textContent = `压缩后大小：${CanvasUtils.formatSize(
+          file.size
+        )}`;
+
+        // 计算并显示压缩比例
+        const compressionRatio = (file.size / fileImage.size).toFixed(2);
+        compressionRatioElement.textContent = `压缩比例：${
+          compressionRatio
+        }`;
+
+        // Call function to add watermark
+        const watermarkedBlob = await CanvasUtils.addWatermarkToImage(
+          file,
+          "Gas Station",
+          "Coordinates: 12580, 558899"
+        );
+
+        const previewImage = document.getElementById("previewImage");
+        previewImage.src = URL.createObjectURL(watermarkedBlob);
+        previewImage.style.display = "block";
+      }
+    </script>
+  </body>
+</html>
